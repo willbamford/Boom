@@ -1,11 +1,11 @@
 {
   "name": "grobo.js",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "homepage": "http://github.com/WebSeed/grobo.js",
   "authors": [
     "Will Bamford <w.bamford@gmail.com>"
   ],
-  "description": "Simple canvas UI library and high-level state manager in JavaScript",
+  "description": "Simple canvas UI and high-level state manager in JavaScript",
   "main": "js/main.js",
   "moduleType": [
     "amd"
@@ -25,14 +25,16 @@
     "test",
     "tests"
   ],
-  "_release": "0.1.0",
+  "dependencies": {
+    "requirejs": "~2.1.11"
+  },
+  "_release": "0.1.1",
   "_resolution": {
     "type": "version",
-    "tag": "0.1.0",
-    "commit": "9ffd3c022a55ab62f7e21230138e3828db6eda8f"
+    "tag": "0.1.1",
+    "commit": "5be01adb11852918a57e74ad93135d95d5513b48"
   },
   "_source": "git://github.com/WebSeed/grobo.js.git",
   "_target": "~0.1.0",
-  "_originalSource": "grobo.js",
-  "_direct": true
+  "_originalSource": "grobo.js"
 }

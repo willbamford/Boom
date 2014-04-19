@@ -1,4 +1,4 @@
-(function () {
+define([], function () {
 
     var lastTime = 0,
         vendors = ['webkit', 'moz'];
@@ -29,5 +29,4 @@
             clearTimeout(id);
         };
     }
-
-} ());
+});

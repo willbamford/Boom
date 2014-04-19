@@ -1,0 +1,25 @@
+{
+  "name": "Boom",
+  "version": "0.1.0",
+  "homepage": "https://github.com/WebSeed/Boom",
+  "authors": [
+    "Will Bamford <w.bamford@gmail.com>"
+  ],
+  "description": "Tile-based game using HTML5 canvas",
+  "main": "index.html",
+  "moduleType": [
+    "amd"
+  ],
+  "license": "MIT",
+  "private": true,
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "test",
+    "tests"
+  ],
+  "dependencies": {
+    "grobo.js": "~0.1.0"
+  }
+}
