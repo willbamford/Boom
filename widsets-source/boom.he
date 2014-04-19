@@ -1,0 +1,1735 @@
+#begin // Information
+/*
+	--------------------------------
+	| BOOM! v1.0                   |
+	--------------------------------
+	| Tick, tick ... BOOM!         |
+	|                              |
+	| Author: Will Bamford         |
+	| Date:   28/10/07 (11/12/07)  |
+	--------------------------------
+*/
+#end
+
+#begin // TODO
+/*
+	[x] Handle if screen is larger than the map (possible)
+	[x] Handle scroll
+	[x] Implement physics
+	[x] Implement collision detection
+	[?] Confirm whether should be -1 in corners (or should be in world bounds?)
+	[x] Dynamically load map data using (binary) XML
+	[x] Fix jump snap problem (boom.btmLast_t)
+	[ ] Dynamic map meta-inf (story, tips, author etc.)
+	[x] Fix potential problem with cancelling downloads
+	[ ] == vs. equals vs. explicit cast (int/String comparisons)?
+	[x] Implement a load map "timer task" to prevent blocking and allow prompt
+	[?] Check if hide menu okay?
+	[x] Game logic/game play
+	[?] Cosine FX e.g. controlling sine motion
+	[ ] Animate every 3 frames not 2
+	[ ] Optimise:
+			[x] Consider scrapping delta (UPDATE: NO)
+			[ ] Inline function calls
+			[ ] Replace nested for loop with 'if'?
+			[?] Could apply jump fix to all solidity checks (faster if re-order if's and allow for diff. collision effects).
+			[?] Re-order special tile check?
+			[ ] Ensure null all variables possible in closeWidget()
+			[?] Use Buffers
+*/
+#end
+
+#begin // Notes
+/*
+	_t / T = measured in tile units
+	_f / F = fixed point
+*/
+#end
+
+class boom {
+	
+#begin // Constants and finals
+	
+	// General commands
+	const int CMD_BACK = 1;
+	const int CMD_SELECT = 2;
+	const int CMD_CANCEL = 3;
+	const int CMD_CLOSE = 4;
+	
+	// Menu commands
+	const int CMD_UPDATE = 10;
+	const int CMD_INSTRUCTIONS = 11;
+	const int CMD_ABOUT = 12;
+	
+	// Game commands
+	const int CMD_RESTART = 20;
+	const int CMD_FRAME_RATE = 21;
+	const int CMD_TOGGLE_INFO = 22;
+	
+	// Framerate
+	const int CMD_FRAME_RATE_MED = 210;
+	const int CMD_FRAME_RATE_FAST = 211;
+	
+	const String URL_BASE = "http://1btn.com/boom/";
+	
+	// Text
+	const String TEXT_HDR_PAUSED = "READY?";
+	const String TEXT_MSG_PAUSED = "Press FIRE (or 5)";
+	const String TEXT_BOOM = "BOOM!";
+	const String TEXT_HDR_INSTRUCTIONS = "Instructions";
+	const String TEXT_INSTRUCTIONS =
+		"You are Boom";
+	
+	// Download states
+	final Object STATE_MAP_LIST = new Object();
+	final Object STATE_MAP_INFO = new Object();
+	final Object STATE_MAP_DATA = new Object();
+	final Object STATE_TILESET = new Object();
+	final Object STATE_TILESET_IMG = new Object();
+	final Object STATE_SUBMIT_SCORE = new Object();
+	
+	// Menu items
+	final MenuItem MENU_OPTIONS = new MenuItem(OPEN_MENU, "Options");
+	final MenuItem MENU_SELECT = new MenuItem(CMD_SELECT, "Select");
+	final MenuItem MENU_BACK = new MenuItem(CMD_BACK, "Back");
+	final MenuItem MENU_CANCEL = new MenuItem(CMD_CANCEL, "Cancel");
+	final MenuItem MENU_CLOSE = new MenuItem(CMD_CLOSE, "Close");
+	
+	// Main menu
+	final Menu MAIN_MENU = new Menu()
+		.add(CMD_UPDATE, "Update maps")
+		.add(CMD_INSTRUCTIONS, "Instructions")
+		.add(CMD_ABOUT, "About");
+		
+	// Game menu
+	final Menu GAME_MENU = new Menu()
+		.add(CMD_RESTART, "Restart")
+		.begin(CMD_FRAME_RATE, "Frame rate")
+			.add(CMD_FRAME_RATE_MED, "Normal")
+			.add(CMD_FRAME_RATE_FAST, "Fast")
+		.end()
+		.reset()
+		.add(CMD_TOGGLE_INFO, "Toggle FPS");
+		
+	final Font FONT_MED = getFont(FACE_SYSTEM, STYLE_BOLD, SIZE_SMALL);
+	final Font FONT_LRG = getFont(FACE_SYSTEM, STYLE_BOLD, SIZE_LARGE);
+	
+	// UI
+	const int PAD = 2;
+		
+	// Fixed-point constants
+	const int SHIFT = 16; // 16:16 FP
+	const int ONE_F = 65536; // 1 << SHIFT;
+	
+	// Other constants
+	const int DELAY_SLOW = 80;	// Frame interval (ms)
+	const int DELAY_MED = 33;
+	const int DELAY_FAST = 25;
+	const int DELAY_V_FAST = 5;
+	
+	// Boom is 30x30 pixels (22x22 bound box)
+	const int BOOM_SPRITE_LENGTH = 30; // 30 sprite images
+	const int BOOM_INNER_X = 10; // 10 pixels
+	const int BOOM_INNER_Y = 11;
+	const int BOOM_OUTER_X = 11; // 11 pixels
+	const int BOOM_OUTER_Y = 15;
+	
+	// Physical constants
+	const int	BOOM_ACCEL_F = 35;
+	const int BOOM_ACCEL_WIND_F = 100;
+	const int BOOM_JUMP_IMPULSE = -23000;
+	const int BOOM_BOOST_IMPULSE = -40000;
+	const int BOOM_SNAP = BOOM_ACCEL_F * 64;
+	const int BOOM_MAX_VX_WALK = 12000; // Max speed
+	const int BOOM_MAX_VX_TOTAL = 60000;
+	const int BOOM_MAX_VY_TOTAL = 8000;
+	
+	const int TIME_GU_SHIFT = 12; // 4096
+	
+	// Tile information
+	const int TILE_SIZE = 24; // Pixel width and height
+	const int IMAGE_MAX_COL = 8;
+	
+	// Tile solidity
+	const int TILE_SOLID_LEFT = 1;
+	const int TILE_SOLID_RIGHT = 2;
+	const int TILE_SOLID_TOP = 4;
+	const int TILE_SOLID_BOTTOM = 8;
+	const int TILE_SPECIAL = 16;
+	const int TILE_SOLID = TILE_SOLID_LEFT | TILE_SOLID_RIGHT | TILE_SOLID_TOP | TILE_SOLID_BOTTOM;
+
+	const int SPECIAL_OFFSET = 9;
+
+	// Special tile types
+	const int TILE_WIND_LEFT = 0;
+	const int TILE_WIND_RIGHT = 1;
+	const int TILE_WATER = 2;
+	const int TILE_LAVA = 3;
+	const int TILE_BOOST = 4;
+	const int TILE_TIMER = 5;
+	const int TILE_POINTS_1 = 6;
+	const int TILE_POINTS_2 = 7;
+	const int TILE_POINTS_3 = 8;
+	const int TILE_POINTS_4 = 9;
+	
+	// Boom animation states
+	const int STATE_IDLE_LEFT = 0;
+	const int STATE_IDLE_RIGHT = 1;
+	const int STATE_WALK_LEFT = 2;
+	const int STATE_WALK_RIGHT = 3;
+	const int STATE_JUMP_LEFT = 4;
+	const int STATE_JUMP_RIGHT = 5;
+	const int STATE_FALL_LEFT = 6;
+	const int STATE_FALL_RIGHT = 7;
+
+	// Scores
+	const int SCORE_POINTS_1 = 1;
+	const int SCORE_POINTS_2 = 5;
+	const int SCORE_POINTS_3 = 15;
+	const int SCORE_POINTS_4 = 50;
+	const int TIMER_BONUS = 5;
+	
+	const int POINT_COMBO_TIME = 1500; // 3 seconds
+	
+	// Player flags
+	const int FLAG_FACE_RIGHT = 1;
+	const int FLAG_KEY_LEFT = 2;
+	const int FLAG_KEY_RIGHT = 4;
+	const int FLAG_KEY_UP = 8;
+	const int FLAG_KEY_DOWN = 16;
+	const int FLAG_IN_AIR = 32;
+	const int FLAG_BOOST = 64;
+#end
+	
+#begin // Variables
+	
+	// UI components
+	Shell menuShell;
+	Flow menuFlow;
+	Shell gameShell;
+	Canvas gameCanvas;
+	Prompt prompt;
+	
+	Image clockImg;
+	Image spriteImg;
+	
+	// Temporary downloads
+	Value dlMapInfo;
+	ByteArray dlMapData;
+	ByteArray dlTileset;
+	
+	// Map data
+	Value mapInfo;
+	ByteArray map;
+	IntArray tileset;
+	List tiles;
+	
+	boolean cancel;
+	
+	/*******************
+	 * Game properties *
+	 *******************/
+	
+	List boomSprite;
+	Timer scheduler;
+	
+	// Player
+	Boom boom;
+	
+	// Screen and viewport properties
+	int screenWidth;
+	int screenHeight;
+	int viewportH_t;
+	int viewportV_t;
+	int viewportX;
+	int viewportY;
+	int viewportX_t; // Left
+	int viewportY_t; // Top
+	
+	// HUD
+	int hudW; // Width
+	int hudY; // Y pos.
+	
+	// Keypad
+	int pad;
+	
+	// Dynamic map data
+	int mapWidth_t;
+	int mapHeight_t;
+	int mapLength_t;
+	int mapWidth; // Pixels
+	int mapHeight;
+	int mapColour; // Background colour
+	int mapGravity;
+	int mapTimeLimit; // Time limit
+	int mapElapsedMS; // Time elapsed in milliseconds
+	int mapElapsedGU; // Time elapsed in game time units
+	
+	String clockStr;
+	String pointStr;
+	String comboStr;
+	
+	// Total points accumulated
+	int points;
+	
+	// Points combo
+	int comboTimeLeft; // For display and combo bonus
+	int comboLoad; // Temporal combo accumulator
+	int comboBonus; // Combo bonus
+	int comboX;
+	int comboY;
+	
+	boolean paused;
+	int tick;
+	int anim;
+	int delay; // 0=FAST, 1=MED, 2=SLOW
+	int fpsReq; // Requested frame rate
+	int delta;
+	long timeLast;
+	long fpsTime;
+	int fps;
+	boolean toggleFps;
+	
+#end
+	
+#begin // Structures
+	
+	// Boom player
+	struct Boom {
+		
+		int flags; // Flag field
+		int state; // Player state
+		int stateLast; // Last state
+		int animLength; // Length of current animation cycle
+		int animOffset; // Array offset
+		int animIndex; // Current index
+		
+		int x_f;
+		int y_f;
+		int x_t; // Centre index
+		int y_t; // ...
+		int vx_f;
+		int vy_f;
+		int dx_f;
+		int dy_f;
+		int accx_f;
+		
+		int btmLast_t;
+		
+		// World pixel position
+		int x;
+		int y;
+	}
+
+#end
+	
+#begin // Helper functions
+	
+	// FP to integer
+	int f2i(int x) {
+		return x >> SHIFT;
+	}
+
+  // Two
+  int, int f2i(int x, int y) {
+  	return x >> SHIFT, y >> SHIFT;
+  }
+
+  // Integer to FP
+  int i2f(int x) {
+		return x << SHIFT;
+	}
+	
+	// Integer to FP
+  int, int i2f(int x, int y) {
+		return x << SHIFT, y << SHIFT;
+	}
+	
+	// Multiply two FP numbers
+  int ml(long x, long y) {
+		return int(x * y >> SHIFT);
+	}
+
+  // Divide two FP numbers
+  int dv(long x, int y) {
+		long z = x << (SHIFT << 1);
+		return z / y >> SHIFT; // Implicit cast
+	}
+	
+	// Pixel to tile units
+	int p2t(int x) {
+		return x / TILE_SIZE;
+	}
+	
+	int, int p2t(int x, int y) {
+		return x / TILE_SIZE, y / TILE_SIZE;
+	}
+	
+	// Tile units to pixels
+	int t2p(int x) {
+		return (x<<4)+(x<<3);
+	}
+	
+	int, int t2p(int x, int y) {
+		return ((x<<4)+(x<<3)),((y<<4)+(y<<3)); // Faster?
+		//return (x * TILE_SIZE), (y * TILE_SIZE);
+	}
+	
+	// Tile units to pixel (centered)
+	int, int t2pcf(int x_t, int y_t) {
+		return i2f(t2p(x_t)+(TILE_SIZE>>1), t2p(y_t)+(TILE_SIZE>>1));
+	}
+#end
+	
+#begin // Game utility functions
+	
+	// Get tile type index at specified x, y tile indices
+	int tileType(int x_t, int y_t) {
+		return tileset[map[mapWidth_t * y_t + x_t]];
+	}
+	
+	// Set tile type
+	void setTile(int x, int y, int v) {
+		map[mapWidth_t * y + x] = v;
+	}
+	
+	// Jump!
+	void jump() {
+		if(~boom.flags & FLAG_IN_AIR) {
+			boom.flags |= FLAG_IN_AIR;
+			boom.vy_f = BOOM_JUMP_IMPULSE;
+		}
+	}
+  
+  // Check if player should fall
+  void fall(int left_t, int right_t, int bottom_t) {
+  	if(!(tileType(left_t, bottom_t) & TILE_SOLID_TOP))
+  		if(!(tileType(right_t, bottom_t) & TILE_SOLID_TOP))
+  			boom.flags |= FLAG_IN_AIR;
+  }
+  
+  // Calculate corner tile indices
+  int, int, int, int corners(int x, int y) {
+  	// (special case for left & top due to nature of int div.)
+  	return p2t(x+TILE_SIZE-BOOM_INNER_X)-1, p2t(y+TILE_SIZE-BOOM_INNER_Y)-1, p2t(x+BOOM_INNER_X-1), p2t(y+BOOM_INNER_Y-1);
+  }
+
+	// Calculate view (on init, screen change etc.)
+	void calculateView(int w, int h) {
+		screenWidth = w;
+		screenHeight = h;
+		viewportH_t = min(p2t(w - 1) + 2, mapWidth_t);
+		viewportV_t = min(p2t(h - 1) + 2, mapHeight_t);
+	}
+
+	// Set delay target
+	void setDelay(int delayTarget) {
+		getStore().put("delay", Value(delayTarget));
+		delay = delayTarget;
+		fpsReq = 1000 / delayTarget;
+	}
+	
+	// Inline
+	void addPoints(int p) {	
+		
+		setTile(boom.x_t, boom.y_t, 0);
+		if(comboLoad > 0)
+			++comboBonus;
+		int pt = p + comboBonus;
+		comboLoad += pt;
+		points += pt;
+		comboTimeLeft = POINT_COMBO_TIME;
+		comboX = boom.x;
+		comboY = boom.y;
+		pointStr = String(points);
+		comboStr = "+" + comboLoad;
+	}
+	
+#end
+	
+#begin // Game functions
+	
+	// Load game resources
+	void loadAndStart(Timer timer) {
+		
+		// Load map information
+		Store store = getStore();
+		
+		// Column and row
+		int col = (int row = 0);
+		
+		// Load ALL map data
+		int tilesLen = int(mapInfo.tilesetLength);
+		tileset = new IntArray(tilesLen);
+		InputStream is = store.getStream("tileset");
+		for(int i = 0; i < tilesLen; i++)
+			tileset[i] = is.readInt();
+		is = null;
+		
+		mapWidth_t = int(mapInfo.tileWidth); // Cast explicitly
+		mapHeight_t = int(mapInfo.tileHeight);
+		
+		mapLength_t = mapWidth_t * mapHeight_t;
+		
+		// Load tileset
+		tiles = new List();
+		Image tileGrid = getImage(store.get("tilesetImg"));
+		for(int i = 0; i < tilesLen; i++) {
+			if(col == IMAGE_MAX_COL) {
+				row += TILE_SIZE;
+				col = 0;
+			}
+			tiles.add(tileGrid.getRegion(col * TILE_SIZE, row, TILE_SIZE, TILE_SIZE));
+			++col;
+		}
+		tileGrid = null;
+		mapWidth, mapHeight = t2p(mapWidth_t, mapHeight_t);
+		
+		/***********************
+		 * Lazily instantiate: *
+		 * 1. Player instance  *
+		 * 2. Player animation *
+		 * 3. Game shell       *
+		 ***********************/
+		
+		if(boom == null)
+			boom = new Boom();
+			
+		if(boomSprite == null) {
+			boomSprite = new List();
+			Image spriteGrid = getImage("boom_sprite.png");
+			col = (row = 0);
+			for(int i = 0; i < BOOM_SPRITE_LENGTH; i++) {
+				if(col == IMAGE_MAX_COL) {
+					row += (BOOM_OUTER_Y << 1);
+					col = 0;
+				}
+				boomSprite.add(spriteGrid.getRegion(col * (BOOM_OUTER_X << 1), row, (BOOM_OUTER_X << 1), (BOOM_OUTER_Y << 1)));
+				++col;
+			}
+			spriteGrid = null; // Dispose of source image
+		}
+		if(spriteImg == null)
+			spriteImg = Image(boomSprite[0]);
+	
+		if(gameShell == null) {
+			gameShell = new Shell(createView("viewGame", null));
+			gameShell[1].setFlags(0);
+		}
+		
+		hudW = 3 * PAD + FONT_LRG.stringWidth("88") + clockImg.width(); // Two wide numeric chars
+		hudY = 2 * PAD + max(FONT_LRG.height(), clockImg.height());
+		
+		// TODO: Move?
+		// Refresh menu shell
+		populateMenu();
+		setDefaultFocus();
+		
+		// Delay (between frames)
+		if(store.has("delay")) { delay = int(store.getValue("delay")); fpsReq = 1000 / delay; }
+		else setDelay(DELAY_FAST);
+		
+		newGame();
+		pushShell(gameShell);
+		
+		popPrompt();
+	}
+	
+	// Initialise the game
+	void initGame() {
+		
+		// Need mapInfo
+		mapInfo = getStore().getValue("mapInfo");
+		
+		// HUD properties
+		if(clockImg == null)
+			clockImg = getImage("clock.png");
+		
+		popPrompt();
+			
+		prompt = new Prompt(clockImg, "Loading...\n" + mapInfo.title, null, null);
+		prompt.push();
+		
+		// To prevent blocking...
+		scheduler = schedule(300, loadAndStart);
+	}
+	
+	// New game
+	void newGame() {
+		
+		tick = 0;
+		
+		// Reload map from store (map mutable)
+		map = getStore().get("mapData");
+		
+		// Set map parameters
+		mapColour = int(mapInfo.colour);
+		mapGravity = int(mapInfo.gravity);
+		mapTimeLimit = int(mapInfo.timeLimit);
+		mapElapsedMS = (mapElapsedGU = 0);
+		
+		clockStr = String(mapTimeLimit);
+		
+		points = 0;
+		comboTimeLeft = (comboLoad = (comboBonus = 0));
+		
+		pointStr = (comboStr = "0");
+		
+		// Player's starting position
+		boom.x_t = int(mapInfo.startTileX);
+		boom.y_t = int(mapInfo.startTileY);
+		boom.x_f, boom.y_f = t2pcf(boom.x_t, boom.y_t);
+		
+		// Reset flags and state
+		boom.flags = FLAG_FACE_RIGHT | FLAG_IN_AIR;
+		boom.state = STATE_FALL_LEFT;
+		boom.stateLast = -1; // Force state change
+		
+		// Calculate pixel positions
+		boom.x, boom.y = f2i(boom.x_f, boom.y_f);
+		boom.vx_f = (boom.vy_f = 0);
+		boom.accx_f = 0;
+		
+		// Calculate view metrics
+		calculateView(getDisplaySize()); // getScreenSize()
+		
+		// Show our game objects
+		scroll();
+		
+		// Ready?
+		pauseGame();
+	}
+	
+	
+	// Game over
+	void gameOver(boolean hasFinished) {
+		
+		cancelTimer();
+		
+		Buffer bf = new Buffer();
+		
+		popPrompt();
+		
+		final int CMD_YES = CMD_CLOSE + 1;
+		
+		int timeBonus = 0;
+		
+		// Map completed successfully
+		if(hasFinished) {
+			int limitMS = mapTimeLimit << TIME_GU_SHIFT;
+			timeBonus = ((limitMS - max(mapElapsedMS, 1)) * 300) / limitMS; // 0 - 300
+			bf.append("BOOM RESCUED!")
+				.append("\n\nPoints = ")
+				.append(points)
+				.append(" +\nTime bonus = ")
+				.append(timeBonus)
+				.append("\nTotal = ")
+				.append(points + timeBonus)
+				.append("\n\nSubmit score?");
+			
+			// Softkey labels
+			MenuItem MENU_YES = new MenuItem(CMD_YES, "Yes");
+			MenuItem MENU_NO = new MenuItem(CMD_CANCEL, "No");
+			prompt = new Prompt(null, bf, MENU_YES, MENU_NO);
+		}
+		// Game over
+		else {
+			bf.append("TICK, TICK ... BOOM!\n\nTry again!");
+			prompt = new Prompt(null, bf, null, MENU_CLOSE);
+		}
+		prompt.setActionHandler(myHandler);
+		prompt.push();
+		
+		// Prompt softkey handler
+		void myHandler(final Shell shell, final Component source, final int action) {
+			
+			popPrompt();
+			
+			int pts = points; // Save before we start new game
+			
+			newGame(); // Start a new game
+			
+			if(action == CMD_YES)
+				submitScore(timeBonus, pts);
+		}
+	}
+	
+	// Cancel scheduler
+	void cancelTimer() {
+		if(scheduler != null) {
+			scheduler.cancel();
+			scheduler = null;
+		}
+	}
+
+	// Pause game
+	void pauseGame() {
+		paused = true;
+		cancelTimer();
+		render();
+	}
+
+	// Resume game
+	void resumeGame() {
+		paused = false;
+		cancelTimer();
+		timeLast = currentTimeMillis();
+		scheduler = schedule(delay, delay, nextFrame);
+	}
+
+	// Pop prompt
+	void popPrompt() {
+		if(prompt != null)
+			prompt.pop();
+	}
+
+	// Next frame (game loop)
+	void nextFrame(Timer timer) {
+		
+		++tick;
+		long t = currentTimeMillis();
+
+		// Calculate frame rate
+		// TODO: Remove?
+		if((tick & 127) == 0) {
+			fps = 128000 / (t - fpsTime);
+			fpsTime = t;
+		}
+
+		// Time between frames?
+		delta = int(t - timeLast);
+		timeLast = t;
+
+		// Calculate combo bonus
+		if(comboLoad != 0) {
+			comboTimeLeft -= delta;
+			if(comboTimeLeft <= 0)
+				comboLoad = (comboBonus = 0);
+		}
+
+		// Cap delta
+		if(delta > 80)
+			delta = 80;
+		
+		// Map time
+		mapElapsedMS += delta;
+		if(mapElapsedMS >= ((mapElapsedGU + 1) << TIME_GU_SHIFT)) {
+			if(mapElapsedGU + 1 > mapTimeLimit) {
+				gameOver(false);
+			}
+			else {
+				++mapElapsedGU;
+				clockStr = String(mapTimeLimit - mapElapsedGU);
+			}
+		}
+		
+		// Reset state
+		boom.state = 0;
+		
+		// Key input
+		input();
+		
+		// Move objects
+		move(delta);
+
+		// Manage collisions
+		collision(delta);
+
+		// Animate objects
+		animate();
+
+		// Scroll map
+		scroll();
+		
+		// Render world
+		render();
+		
+	}
+#end
+
+#begin // Game loop functions
+	
+	// Check key input
+	void input() {
+		
+		boom.accx_f = 0; // Reset acceleration
+		
+		// Up key
+		if(boom.flags & FLAG_KEY_UP)
+			jump();
+		
+		// Left key
+		if(boom.flags & FLAG_KEY_LEFT) {
+			boom.accx_f = -BOOM_ACCEL_F;
+			boom.flags &= ~FLAG_FACE_RIGHT;
+		}
+		// Right key
+		else if(boom.flags & FLAG_KEY_RIGHT) {
+			boom.accx_f = BOOM_ACCEL_F;
+			boom.flags |= FLAG_FACE_RIGHT;
+		}
+		// Apply friction
+		else {
+			// Moving right
+			if(boom.vx_f > 0) {
+				if(boom.vx_f < BOOM_SNAP) // Snap
+					boom.vx_f = 0;
+				else { // Friction
+					boom.accx_f = -BOOM_ACCEL_F >> 1; // Ground friction
+					if(boom.flags & FLAG_IN_AIR) // Air friction
+						boom.accx_f >>= 1;
+				}
+			}
+			// Moving left
+			else {
+				if(boom.vx_f > -BOOM_SNAP) // Snap
+					boom.vx_f = 0;
+				else { // Friction
+					boom.accx_f = BOOM_ACCEL_F >> 1; // Ground friction
+					if(boom.flags & FLAG_IN_AIR) // Air friction {
+						boom.accx_f >>= 1;
+				}
+			}
+		}
+	}
+
+	// Calculate (initial) object movement
+	void move(int delta) {
+		
+		/*************
+		 * Move Boom *
+		 *************/
+		
+		boolean inWind = false;
+		
+		// Handle special tiles
+		int v1 = tileType(boom.x_t, boom.y_t);
+		if(v1 & TILE_SPECIAL) {
+			
+			switch(v1 >> SPECIAL_OFFSET) {
+				case TILE_WIND_LEFT:
+					inWind = true;
+					boom.accx_f = -BOOM_ACCEL_WIND_F; 
+					break;
+				case TILE_WIND_RIGHT:
+					inWind = true;
+					boom.accx_f = BOOM_ACCEL_WIND_F;
+					break;
+				case TILE_BOOST:
+					if(!(boom.flags & FLAG_IN_AIR)) {
+						if(!(boom.flags & FLAG_BOOST)) {
+							boom.vy_f = BOOM_BOOST_IMPULSE;
+							boom.flags |= (FLAG_IN_AIR | FLAG_BOOST);
+						}
+					}
+					break;
+				case TILE_LAVA: // Instant game over
+					gameOver(false);
+					break;
+				case TILE_WATER:
+					gameOver(true);
+					break;
+				case TILE_TIMER:
+					mapElapsedGU = max(0, mapElapsedGU - TIMER_BONUS);
+					mapElapsedMS = mapElapsedGU << TIME_GU_SHIFT;
+					setTile(boom.x_t, boom.y_t, 0);
+					break;
+				case TILE_POINTS_1:
+					addPoints(SCORE_POINTS_1);
+					break;
+				case TILE_POINTS_2:
+					addPoints(SCORE_POINTS_2);
+					break;
+				case TILE_POINTS_3:
+					addPoints(SCORE_POINTS_3);
+					break;
+				case TILE_POINTS_4:
+					addPoints(SCORE_POINTS_4);
+					break;
+				default:
+					break;
+			}
+		}
+		
+		// New x velocity
+		int nvx_f = boom.vx_f + boom.accx_f * delta;
+		
+		// Cap max x velocity
+		if(nvx_f > BOOM_MAX_VX_WALK) {
+			if(!inWind)
+				nvx_f = BOOM_MAX_VX_WALK;
+			else if(nvx_f > BOOM_MAX_VX_TOTAL)
+				nvx_f = BOOM_MAX_VX_TOTAL;
+		}
+		else if(nvx_f < -BOOM_MAX_VX_WALK) {
+			if(!inWind)
+				nvx_f = -BOOM_MAX_VX_WALK;
+			else if(nvx_f < -BOOM_MAX_VX_TOTAL)
+				nvx_f = -BOOM_MAX_VX_TOTAL;
+		}
+		
+		// Adjust dynamics for delta
+		int av_f = (boom.vx_f + nvx_f) >> 1;
+		boom.vx_f = nvx_f;
+		boom.dx_f = av_f * delta;
+		
+		// If in the air, apply gravity
+		int nvy_f = 0;
+		if(boom.flags & FLAG_IN_AIR) {
+			nvy_f = boom.vy_f + mapGravity * delta;
+			
+			// Cap max y velocity
+			if(nvy_f > BOOM_MAX_VY_TOTAL)
+				nvy_f = BOOM_MAX_VY_TOTAL;
+		}
+		
+		av_f = (boom.vy_f + nvy_f) >> 1;
+		boom.vy_f = nvy_f;
+		boom.dy_f = av_f * delta;
+		
+	}
+	
+	// Collision detection/handling
+	void collision(int delta) {
+		
+		// Check tile indices when dy is applied
+		int left_t, int top_t, int right_t, int bottom_t = corners(f2i(boom.x_f, boom.y_f + boom.dy_f));
+		
+		// Moving upwards
+		if(boom.dy_f < 0) {
+			
+			// Top edge of world
+			if(top_t < 0) {
+				boom.vy_f = 0;
+				boom.y_f = i2f(BOOM_INNER_Y);
+			}
+			else {
+				// Ceiling collision
+				if((tileType(left_t, top_t) | tileType(right_t, top_t)) & TILE_SOLID_BOTTOM) {
+					boom.y_f = i2f(t2p(top_t + 1) + BOOM_INNER_Y); // Snap to ceiling
+			    boom.vy_f = 0;
+				}
+				else // Apply dy
+					boom.y_f += boom.dy_f;
+			}
+			
+			boom.state = STATE_JUMP_LEFT; // Will check facing later...
+		}
+		// Moving downwards
+		else if(boom.dy_f > 0) {
+			
+			// Bottom edge of world
+			if(bottom_t >= mapHeight_t) {
+				boom.y_f = i2f(mapHeight - BOOM_INNER_Y);
+				boom.vy_f = 0;
+			}
+			else {
+				if((boom.btmLast_t < bottom_t) && // To prevent jump problems
+					((tileType(left_t, bottom_t) | tileType(right_t, bottom_t)) & TILE_SOLID_TOP)) {
+					
+					boom.y_f = i2f(t2p(bottom_t) - BOOM_INNER_Y);
+					boom.vy_f = 0;
+					boom.flags &= ~(FLAG_IN_AIR | FLAG_BOOST);
+				}
+				else // Apply dx
+					boom.y_f += boom.dy_f;
+			}
+			
+			boom.state = STATE_FALL_LEFT; // Will check facing later...
+		}
+		
+		// Last bottom index (fix jump bug)
+		boom.btmLast_t = bottom_t;
+		
+		// Check tile indices when dx is applied
+		left_t, top_t, right_t, bottom_t = corners(f2i(boom.x_f + boom.dx_f, boom.y_f));
+		
+		// Moving left
+		if(boom.dx_f < 0) {
+			// Left edge of world
+			if(left_t < 0) {
+				boom.vx_f = 0;
+				boom.x_f = i2f(BOOM_INNER_X);
+			}
+			else {
+				// Left edge collision
+				if((tileType(left_t, top_t) | tileType(left_t, bottom_t)) & TILE_SOLID_RIGHT) {
+					boom.x_f = i2f(t2p(left_t + 1) + BOOM_INNER_X);
+					boom.vx_f = 0;
+				}
+				else { // Apply dx
+					boom.x_f += boom.dx_f;
+					if((boom.flags & FLAG_IN_AIR) != FLAG_IN_AIR)
+						fall(left_t, right_t, bottom_t + 1);
+				}
+			}
+			if(boom.dy_f == 0) boom.state = STATE_WALK_LEFT; // Check facing later
+		}
+		// Moving right
+		else if(boom.dx_f > 0) {
+			// Right edge of world
+			if(right_t >= mapWidth_t) {
+				boom.x_f = i2f(mapWidth - BOOM_INNER_X);
+				boom.vx_f = 0;
+			}
+			else {
+				if((tileType(right_t, top_t) | tileType(right_t, bottom_t)) & TILE_SOLID_LEFT) {
+					boom.x_f = i2f(t2p(right_t) - BOOM_INNER_X);
+					boom.vx_f = 0;
+				}
+				else { // Apply dx
+					boom.x_f += boom.dx_f;
+					if((boom.flags & FLAG_IN_AIR) != FLAG_IN_AIR)
+						fall(left_t, right_t, bottom_t + 1);
+				}
+			}
+			if(boom.dy_f == 0) boom.state = STATE_WALK_LEFT; // Check facing later
+		}
+
+		boom.x, boom.y = f2i(boom.x_f, boom.y_f);
+		boom.x_t, boom.y_t = p2t(boom.x, boom.y);
+	}
+	
+	// Animate character(s)
+	void animate() {
+		
+		boom.state += boom.flags & FLAG_FACE_RIGHT;
+		
+		if(boom.state != boom.stateLast) {
+			boom.stateLast = boom.state;
+			boom.animIndex = (anim = 0);
+			switch(boom.state) {
+				case STATE_IDLE_RIGHT:
+					boom.animLength = 2;
+					boom.animOffset = 0;
+					break;
+				case STATE_WALK_RIGHT:
+					boom.animLength = 6;
+					boom.animOffset = 1;
+					break;
+				case STATE_JUMP_RIGHT:
+					boom.animLength = 3;
+					boom.animOffset = 7;
+					break;
+				case STATE_FALL_RIGHT:
+					boom.animLength = 5;
+					boom.animOffset = 10;
+					break;
+				case STATE_IDLE_LEFT:
+					boom.animLength = 2;
+					boom.animOffset = 15;
+					break;
+				case STATE_WALK_LEFT:
+					boom.animLength = 6;
+					boom.animOffset = 16;
+					break;
+				case STATE_JUMP_LEFT:
+					boom.animLength = 3;
+					boom.animOffset = 22;
+					break;
+				case STATE_FALL_LEFT:
+					boom.animLength = 5;
+					boom.animOffset = 25;
+					break;
+			}
+			spriteImg = Image(boomSprite[boom.animIndex + boom.animOffset]);
+		}
+		// Next frame
+		else if(++anim == 3) { //(tick & 3) == 3)
+			anim = 0;
+			if(++boom.animIndex == boom.animLength)
+				boom.animIndex = 0;
+			spriteImg = Image(boomSprite[boom.animIndex + boom.animOffset]);
+		}
+	}
+	
+	// Scroll
+	void scroll() {
+		
+		// Center target
+		viewportX = boom.x - (screenWidth >> 1);
+		viewportY = boom.y - (screenHeight >> 1);
+		
+		// Limit to map bounds
+		if(viewportX > mapWidth - screenWidth)
+			viewportX = mapWidth - screenWidth;
+		if(viewportX < 0)
+			viewportX = 0;
+			
+		if(viewportY > mapHeight - screenHeight)
+			viewportY = mapHeight - screenHeight;
+		if(viewportY < 0)
+			viewportY = 0;
+		
+		viewportX_t, viewportY_t = p2t(viewportX, viewportY);
+		
+	}
+	
+	// Render canvas
+	void render() {
+		gameCanvas.repaint(false);
+		flushScreen(false);
+	}
+	
+	// Paint game screen
+	void paint(Component c, Graphics g, Style style, int width, int height) {
+		
+		int tx1 = (int ty1 = (int tx2 = (int ty2 = (int v1 = (int v2 = 0)))));
+		
+		tx1, ty1 = getDisplaySize(); // getScreenSize
+		if(tx1 != screenWidth) {
+			pauseGame();
+			calculateView(tx1, ty1);
+			scroll();
+		}
+		
+		// Map colour fill
+		g.setColor(mapColour);
+		g.fillRect(0, 0, width, height);
+		
+		// Range
+		int maxX_t = min((viewportX_t + viewportH_t), mapWidth_t);
+		int maxY_t = min((viewportY_t + viewportV_t), mapHeight_t);
+		
+		// Render tiles
+		for(ty1 = viewportY_t; ty1 < maxY_t; ty1++) {
+			v1 = ty1 * mapWidth_t;
+			ty2 = (ty1 << 4) + (ty1 << 3); // t2p(ty1);
+			for(tx1 = viewportX_t; tx1 < maxX_t; tx1++) {
+				v2 = map[v1 + tx1];
+				if(v2 != 0) {
+					g.drawImage(
+						Image(tiles[v2]),
+						(tx1 << 4) + (tx1 << 3) - viewportX, // t2p(tx1)
+						ty2 - viewportY,
+						0); // TOP | LEFT
+				}
+			}
+		}
+		
+		// Render Boom
+		g.drawImage(
+			spriteImg,
+			(boom.x - BOOM_OUTER_X) - viewportX,
+			(boom.y - BOOM_OUTER_Y) - viewportY,
+			0);
+		
+		// Clock HUD
+		v2 = width - FONT_LRG.height();
+		g.setColor(0xFFFFFF);
+		g.fillRect(v2 - hudW, 0, hudW, hudY);
+		g.drawImage(clockImg, v2 - PAD, hudY - PAD, 40); //BOTTOM | RIGHT
+		g.setFont(FONT_LRG);
+		
+		v1 = mapTimeLimit - mapElapsedGU;
+		if(v1 < 10) g.setColor(0xFF0000);
+		else g.setColor(0x000000);
+		g.drawString(clockStr, v2 - hudW + PAD, hudY - PAD, 36); //BOTTOM | LEFT
+		
+		// Points combo
+		if(comboLoad != 0) {
+			g.setFont(FONT_MED);
+			ty1 = FONT_MED.height();
+			g.setColor(0x000000);
+			g.drawString(
+				comboStr,
+				comboX - viewportX,
+				comboY - viewportY,
+				33); //BOTTOM | HCENTER
+			g.fillRect(0, height - ty1 - PAD, FONT_MED.stringWidth(pointStr) + (PAD << 1), ty1 + (PAD << 1));
+			g.setColor(0xFFFFFF);		
+			g.drawString(
+				pointStr,
+				PAD,
+				height - PAD,
+				36); //BOTTOM | LEFT
+			comboY -= PAD;
+		}
+		
+		// Draw paused overlay
+		if(paused) {
+			
+			// v1 = box width, v2 = box height
+			v1 = max(FONT_LRG.stringWidth(TEXT_BOOM), FONT_MED.stringWidth(TEXT_HDR_PAUSED));
+			v1 = max(v1, FONT_MED.stringWidth(TEXT_MSG_PAUSED));
+			v1 += 6 * PAD; // Double pad
+			v2 = FONT_LRG.height() + 2 * FONT_MED.height() + 8 * PAD;
+			
+			// Box TL
+			tx1 = (width - v1) / 2;
+			ty1 = (height - v2) / 2;
+			g.setColor(0x000000);
+			g.fillRect(tx1 - PAD, ty1 - PAD, v1 + 2 * PAD, v2 + 2 * PAD);
+			g.setColor(0xFFFFFF);
+			g.fillRect(tx1, ty1, v1, v2);
+			
+			// BOOM!
+			ty1 = ty1 + 3 * PAD;
+			g.setFont(FONT_LRG);
+			g.setColor(0xFF7F00);
+			g.drawString(TEXT_BOOM, width >> 1, ty1, 17); //TOP | HCENTER
+			ty1 += FONT_LRG.height() + PAD;
+			
+			g.setFont(FONT_MED);
+			
+			// Header
+			g.setColor(0x000000);
+			g.drawString(TEXT_HDR_PAUSED, width >> 1, ty1, 17); //TOP | HCENTER
+			ty1 += FONT_MED.height() + PAD;
+			
+			// Message
+			g.setColor(0x999999);
+			g.drawString(TEXT_MSG_PAUSED, width >> 1, ty1, 17); //TOP | HCENTER
+		}
+		// FPS
+		else if(toggleFps) {
+			g.setFont(FONT_MED);
+			g.setColor(0xFFFFFF);
+			g.drawString(fps + "/" + fpsReq, width - PAD, height - PAD, 40); //BOTTOM | RIGHT
+		}
+	}
+#end
+	
+#begin // Menu functions
+	
+	// Create header text
+	Text createHeaderText(String name, String type) {
+		
+		Text text = new Text(getStyle(type), name);
+		text.setPreferredWidth(-100);
+		text.setFlags(VISIBLE | LINEFEED);
+		return text;
+	}
+	
+	// Set default focus (to first element)
+	void setDefaultFocus() {
+		int len = menuFlow.size();
+		Component c = null;
+		for(int i = 0; i < len; i++) {
+			c = menuFlow.get(i);
+			if(c.isFocusable()) {
+				menuShell.setFocused(c);
+				break;
+			}
+		}
+	}
+	
+	// Create flow text
+	Text createText(String str) {
+		Text text = new Text(getStyle("text1"), str);
+		text.setPreferredWidth(-100);
+		text.setFlags(VISIBLE|LINEFEED);
+		return text;
+	}
+	
+	// Create the map menu
+	void populateMenu() {
+		
+		// Clear the menu
+		menuFlow.clear();
+		
+		// Main header
+		menuFlow.add(createHeaderText(TEXT_BOOM, "header"));
+	
+		Store store = getStore();
+	
+		// Stored map
+		if(store.has("mapInfo")) {
+			menuFlow.add(createHeaderText("Stored map:", "subheader"));
+			menuFlow.add(createItem(store.getValue("mapInfo")));
+		}
+		
+		menuFlow.add(createHeaderText("Online maps:", "subheader"));
+		
+		// Stored map list
+		if(store.has("mapList")) {
+		
+			Value mapList = store.getValue("mapList");
+			
+			foreach(Value v : mapList)
+				menuFlow.add(createItem(v));
+				
+		}
+		// Default message
+		else
+			menuFlow.add(createText("Select UPDATE MAPS from the OPTIONS menu to get the latest map list."));
+		
+		menuFlow.add(createHeaderText("www.1btn.com", "subheader"));
+		
+		// Create a map list item
+		Flow createItem(Value v) {
+			Flow itemFlow = new Flow(getStyle("list.bg"));
+			itemFlow.setFlags(VISIBLE|FOCUSABLE|LINEFEED);
+			itemFlow.setPreferredWidth(-100);
+			itemFlow.setData(v);
+			itemFlow.setAction(CMD_SELECT);
+					
+			Flow textFlow = new Flow(getStyle("default"));
+			textFlow.setPreferredWidth(-100);
+			textFlow.setFlags(VISIBLE);
+		
+			Label title = new Label(getStyle("list.title"), v.title);
+			title.setPreferredWidth(-100);
+			title.setFlags(VISIBLE|LINEFEED);
+			textFlow.add(title);
+						
+			Text creator = new Text(getStyle("list.creator"), "by " + v.creator);
+			creator.setPreferredWidth(-100);
+			creator.setFlags(VISIBLE|LINEFEED);
+			textFlow.add(creator);
+			
+			itemFlow.add(textFlow);
+			
+			return itemFlow;
+		}
+	}
+	
+	// Create instructions shell
+	Shell createInstructions() {
+		
+		Flow flow = new Flow(getStyle("default"));
+		flow
+			.setPreferredSize(-100, -100)
+			.add(createHeaderText(TEXT_HDR_INSTRUCTIONS, "header"))
+			.add(createHeaderText("Objectives:", "subheader"))
+			.add(createText("Someone has lit your fuse! You must find water to stay alive.\n\nCollect egg timers to replenish your fuse. Other map objects will increase your score. Hurry though, the clock is ticking."))
+			.add(createHeaderText("Controls:", "subheader"))
+			.add(createText("Use the LEFT and RIGHT ARROW KEYS (or 4 and 6) to MOVE LEFT and RIGHT. Press the UP ARROW (or FIRE/5/2) to JUMP. Press 0 to PAUSE the game."))
+			.add(createHeaderText("Tips:", "subheader"))
+			.add(createText("Collecting multiple map objects in quick succession will earn you a combo bonus."))
+			.add(createHeaderText("www.1btn.com", "subheader"));
+		Scrollable scr = new Scrollable(getStyle("bg"), flow);
+		return new Shell(scr);
+	}
+	
+#end
+	
+#begin // Network functions
+	
+	// Download map list
+	void downloadMapList() {
+		
+		prompt = new Prompt(null, "Downloading...\nLatest maps", null, MENU_CANCEL);
+		prompt.push();
+		
+		Value args = ["url" => URL_BASE + "get-map-list.xml.php"];
+		call(STATE_MAP_LIST, "xml_map_list", "get", args);
+	}
+	
+	// Download map information
+	void downloadMap(int mapId) {
+		
+		prompt = new Prompt(null, "Downloading...\nMap information", null, MENU_CANCEL);
+		prompt.setProgress(1, 4);
+		prompt.push();
+		
+		Value params = ["mid" => mapId];
+		Value args = [
+			"url" => URL_BASE + "get-map-info.xml.php",
+			"params" => params
+		];
+		call(STATE_MAP_INFO, "xml_map_info", "get", args);
+	}
+	
+	// Download map data
+	void downloadMapData(int mapId) {
+	
+		prompt = new Prompt(null, "Downloading...\nMap data", null, MENU_CANCEL);
+		prompt.setProgress(2, 4);
+		prompt.push();
+	
+		Value params = ["mid" => mapId];
+		Value args = [
+			"url" => URL_BASE + "get-map.php",
+			"params" => params
+		];
+		call(STATE_MAP_DATA, "http_service", "get", args);
+	}
+	
+	// Download tileset
+	void downloadTileset(int tilesetId) {
+	
+		prompt = new Prompt(null, "Downloading...\nTileset", null, MENU_CANCEL);
+		prompt.setProgress(3, 4);
+		prompt.push();
+		
+		Value params = ["tid" => tilesetId];
+		Value args = [
+			"url" => URL_BASE + "get-tileset.php",
+			"params" => params
+		];
+		call(STATE_TILESET, "http_service", "get", args);
+	}
+	
+	// Download tileset image
+	void downloadTilesetImage(int tilesetId) {
+		
+		prompt = new Prompt(null, "Downloading...\nTiles", null, MENU_CANCEL);
+		prompt.setProgress(4, 4);
+		prompt.push();
+		
+		Value args = [
+			"url" => URL_BASE + "tilesets/tileset" + tilesetId + ".png"
+		];
+		call(STATE_TILESET_IMG, "http_service", "get", args);
+	}
+	
+	// Submit score
+	void submitScore(int timeBonus, int points) {
+
+		prompt = new Prompt(null, "Uploading...\nScore", null, MENU_CANCEL);
+		prompt.push();
+
+		Value params = [
+			"pass" => "dft9as2e",
+			"player" => getUsername(),
+			"timeBonus" => timeBonus,
+			"points" => points,
+			"mapId" => mapInfo.id
+		];
+		Value arg = [
+			"url" => URL_BASE + "scores.php",
+			"params" => params
+		];
+		call(STATE_SUBMIT_SCORE, "http_service", "post", arg);
+	}
+#end
+	
+#begin // System callbacks
+	
+	// Create views
+	Component createElement(
+							String viewName,
+							String elementName,
+							Style style,
+							Object context) {
+								
+		// Create menu view
+		if(elementName.equals("menu")) {
+			menuFlow = new Flow(getStyle("default"));
+			menuFlow.setPreferredSize(-100, -100);
+			populateMenu();
+			return new Scrollable(getStyle("bg"), menuFlow);
+		}
+		// Create game view
+		else if(elementName.equals("game")) {
+			Style s = getStyle("default");
+			Flow flow = new Flow(s);
+			gameCanvas = new Canvas(s);
+			gameCanvas.setPreferredSize(-100, -100); // Full screen
+			flow.add(gameCanvas);
+			return flow;
+		}
+		return null;
+	}
+	
+	// Softkey mapping
+	MenuItem getSoftKey(Shell shell, Component focused, int key) {
+		
+		// All shells have 'Back' menu
+		if(key == SOFTKEY_BACK)
+				return MENU_BACK;
+		
+		// Menu and game shells have 'Options' menu
+		if(key == SOFTKEY_OK &&
+			(shell == menuShell ||
+			shell == gameShell))
+			return MENU_OPTIONS;
+		
+		// Menu shell has 'Select' only if
+		// there's something to select.
+		if(shell == menuShell &&
+			key == SOFTKEY_MIDDLE &&
+			getStore().has("mapList"))
+			return MENU_SELECT;
+		
+		return null;
+	}
+	
+	// Key event handler
+  boolean keyAction(Component source, int op, int code) {
+  	
+  	// TODO ==?
+  	if(source.equals(gameShell)) {
+	  	if(op == KEY_PRESSED) {
+	  		switch(code) {
+					case KEY_LEFT:
+					case '4':
+	  				boom.flags |= FLAG_KEY_LEFT;
+	  				return true;
+	  			case KEY_RIGHT:
+	  			case '6':
+	  				boom.flags |= FLAG_KEY_RIGHT;
+	  				return true;
+	  			case KEY_UP:
+	  			case '2':
+	  				boom.flags |= FLAG_KEY_UP;
+	  				return true;
+	  			case KEY_DOWN:
+	  				boom.flags |= FLAG_KEY_DOWN;
+	  				return true;		
+	  			case KEY_FIRE:
+	  			case '5':
+	  				if(paused) 
+	  					resumeGame();
+	  				else
+	  					boom.flags |= FLAG_KEY_UP;
+	  				return true;
+	  			case '0':
+	  				pauseGame();
+	  				return true;
+	  		}
+	  	} else if(op == KEY_RELEASED) {
+	  		switch(code) {
+					case KEY_LEFT:
+					case '4':
+	  				boom.flags &= ~FLAG_KEY_LEFT;
+	  				return true;
+	  			case KEY_RIGHT:
+	  			case '6':
+	  				boom.flags &= ~FLAG_KEY_RIGHT;
+	  				return true;
+	  			case KEY_FIRE:
+	  			case '2':
+	  			case '5':
+	  			case KEY_UP:
+	  				boom.flags &= ~FLAG_KEY_UP;
+	  				return true;
+	  			case KEY_DOWN:
+	  				boom.flags &= ~FLAG_KEY_DOWN;
+	  				return true;
+	  		}
+	  	}
+  	}
+  	return false; // Key event not consumed
+  }
+	
+	// Get the current menu
+	Menu getMenu(Shell shell, Component source) {
+		
+		if(shell == menuShell)
+			return MAIN_MENU;
+		else if(shell == gameShell) {
+			pauseGame();
+			return GAME_MENU;
+		}
+		return null;
+	}
+	
+	// Data request success
+	void onSuccess(Object state, Value ret) {
+		
+		popPrompt();
+		
+		// Cancelled - take no action
+		if(cancel) {
+			cancel = false;
+			return;
+		}
+		
+		Store store = getStore();
+		
+		// Map list downloaded
+		if(state == STATE_MAP_LIST) {
+			
+			store.put("mapList", ret);
+			populateMenu(); // Recreate map list
+			setDefaultFocus();
+			menuShell.updateMenu(); // Add "select"
+		}
+		// Map info downloaded
+		else if(state == STATE_MAP_INFO) {
+			
+			dlMapInfo = ret;
+			downloadMapData(dlMapInfo.id);
+		}
+		// Map data downloaded
+		else if(state == STATE_MAP_DATA) {
+			
+			dlMapData = ByteArray(ret);
+			Value mapInfoLast = store.getValue("mapInfo");
+			
+			// This map has same tileset as last
+			if(mapInfoLast != null &&
+				int(mapInfoLast.tilesetId) == int(dlMapInfo.tilesetId)) { // Explicit cast?
+				store.put("mapData", dlMapData);
+				store.put("mapInfo", dlMapInfo);
+				initGame();
+			} else
+				downloadTileset(int(dlMapInfo.tilesetId));
+				
+		}
+		// Tileset definition downloaded
+		else if(state == STATE_TILESET) {
+			
+			dlTileset = ByteArray(ret);
+			downloadTilesetImage(int(dlMapInfo.tilesetId));
+		}
+		// Tileset image downloaded
+		else if(state == STATE_TILESET_IMG) {
+			
+			// start transaction
+			store.put("mapData", dlMapData);
+			store.put("tilesetImg", ByteArray(ret));
+			store.put("tileset", dlTileset);
+			store.put("mapInfo", dlMapInfo);
+			// end transaction
+			
+			dlMapInfo = null;
+			dlTileset = null;
+			dlMapInfo = null;
+			
+			initGame();
+		}
+		// Score submitted
+		else if(state == STATE_SUBMIT_SCORE) {
+			prompt = new Prompt(null, String(ret), null, MENU_CLOSE);
+			prompt.push();
+		}
+	}
+	
+	// Data request failure
+	void onFailure(Object state, String error) {
+		
+		popPrompt();
+		
+		// Cancelled - take no action
+		if(cancel) {
+			cancel = false;
+			return;
+		}
+		
+		setBubble(null, "Network error: " + error);
+	}
+	
+	// Action event handler
+	void actionPerformed(Shell shell, Component source, int action) {
+	
+		// General commands
+		switch(action) {
+			case CMD_CANCEL:
+				cancel = true;
+				popPrompt();
+				return;
+			case CMD_CLOSE:
+				popPrompt();
+				return;
+			case CMD_BACK: // Always pop current shell
+				popShell(shell);
+				break;
+				// Continue...
+		}
+
+		// Game shell
+		if(shell == gameShell) {
+			
+			switch(action) {
+				case CMD_RESTART:
+					newGame();
+					break;
+				case CMD_FRAME_RATE_MED:
+					setDelay(DELAY_MED);
+					break;
+				case CMD_FRAME_RATE_FAST:
+					setDelay(DELAY_FAST);
+					break;
+				case CMD_TOGGLE_INFO:
+					toggleFps = !toggleFps;
+					break;
+				case CMD_BACK:
+					pauseGame(); // Could just cancel timer
+					break;
+			}
+		}
+		// Menu shell
+		else if(shell == menuShell) {
+			
+			switch(action) {
+				case CMD_SELECT:
+					if(source != null) {
+						Value v = source.getData();
+						if(v != null) {
+							
+							Store store = getStore();
+							
+							// Check if this map is already stored
+							Value mi = store.getValue("mapInfo");
+							
+							// Pre-loaded map
+							if(mi != null && int(mi.id) == int(v.id))
+								initGame();
+							else {
+								cancel = false;
+								downloadMap(int(v.id)); // Start chain of downloads
+							}
+						}
+					}
+					break;
+				case CMD_UPDATE:
+					downloadMapList();
+					break;
+				case CMD_INSTRUCTIONS:
+					pushShell(createInstructions());
+					break;
+				case CMD_ABOUT:
+					setBubble(
+						getImage("mobile_radicals.png"),
+						"BOOM!\nwww.1btn.com\nmobileradicals.com");
+					break;
+			}
+		}
+	
+	}
+	
+	// Start widget (create minimised view)
+	void startWidget() {
+		
+		setMinimizedView(createView("viewMini", getStyle("default")));
+	}
+	
+	// Stop widget
+	void stopWidget() {
+		cleanup();
+	}
+	
+	// Open widget (create maximised view)
+	Shell openWidget() {
+	
+		menuShell = new Shell(createView("viewMenu", null));
+		
+		// First map list download?
+		if(!getStore().has("mapList"))
+			downloadMapList(); // Download map list
+		else
+			setDefaultFocus(); // Set focus to first focusable item
+		
+		return menuShell;
+	}
+	
+	// Close widget
+	void closeWidget() {
+		cleanup();
+	}
+	
+	void cleanup() {
+		
+		cancelTimer();
+		
+		menuShell = null;
+		menuFlow = null;
+		gameShell = null;
+		gameCanvas = null;
+		prompt = null;
+		clockImg = null;
+		spriteImg = null;
+		dlMapInfo = null;
+		dlMapData = null;
+		dlTileset = null;
+		mapInfo = null;
+		map = null;
+		tileset = null;
+		tiles = null;
+		scheduler = null;
+	}
+#end
+}

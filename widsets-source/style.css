@@ -1,0 +1,83 @@
+/* Style */
+
+centrify {
+
+	align: hcenter vcenter;
+}
+
+frame {
+
+	background: grid8 img_border.png #FF7F00 2 2 2 2;
+	width: 100%;
+}
+
+text1 {
+
+	color-1: #FFFFFF;
+	font-1: medium normal;
+	align: left top;
+	padding: 4sp 8sp 4sp 8sp;
+}
+
+/*
+bgnone {
+	background: none;
+}
+*/
+
+bg {
+	background: solid #000000;
+}
+
+header {
+
+	background: vgradient #FF7F00 #FF3F00;
+	font-1: large bold;
+	align: hcenter vcenter;
+	color-1: #FFFFFF;
+	padding: 4sp 8sp 4sp 8sp;
+}
+
+subheader : header {
+
+	font-1: medium bold;
+	background: solid #444444;
+	align: left vcenter;
+}
+
+list.bg {
+
+	background: solid #CCCCCC;
+	padding: 4sp 12sp 4sp 12sp;
+	border-type: rectangle #FFFFFF #999999 #999999 #FFFFFF;
+	border: 4sp 4sp 4sp 4sp;
+	font-1: small;
+	color: white;
+
+	focused {
+	
+		padding: 4sp 12sp 4sp 12sp;
+		border-type: rectangle #2951CB;
+		border: 4sp 4sp 4sp 4sp;
+		background: solid #6699FF;
+		color-1: #ffffff;
+	}
+}
+
+list.title {
+
+	color: black;
+	font: medium bold;
+	focused {
+		color: white;
+	}
+}
+
+list.creator {
+
+	color: #000000;
+	font: small;
+	focused {
+		color: #FFFFFF;
+	}
+}

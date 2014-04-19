@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<widget spec_version="2.0">
+	<info>
+		<name>BOOM! Game</name>
+		<version>1.1</version>
+		<author>Will Bamford</author>
+		<clientversion>1.0</clientversion>
+		<shortdescription>Tick, tick .. BOOM!</shortdescription>
+		<longdescription>Scrolling platform game. Find water!</longdescription>
+		<tags>boom scrolling platform arcade fun game games</tags>
+	</info>
+	<services>
+		<service type="http" id="http_service" />
+		<service type="http" id="xml_map_list">
+			<filter id="filter_map_list" />
+		</service>
+		<service type="http" id="xml_map_info">
+			<filter id="filter_map_info" />
+		</service>
+	</services>
+	<filters>
+		<filter id="filter_map_list">
+			<list>
+				<foreach>
+					<xpath>map</xpath>
+					<list>
+						<item name="id">
+							<xpath>id/text()</xpath>
+						</item>
+						<item name="title">
+							<xpath>title/text()</xpath>
+						</item>
+						<item name="creator">
+							<xpath>creator/text()</xpath>
+						</item>
+					</list>
+				</foreach>	
+			</list>
+		</filter>
+		<filter id="filter_map_info">
+			<list>
+				<item name="id">
+					<xpath>id/text()</xpath>
+				</item>
+				<item name="title">
+					<xpath>title/text()</xpath>
+				</item>
+				<item name="tileWidth">
+					<xpath>tileWidth/text()</xpath>
+				</item>
+				<item name="tileHeight">
+					<xpath>tileHeight/text()</xpath>
+				</item>
+				<item name="colour">
+					<xpath>colour/text()</xpath>
+				</item>
+				<item name="timeLimit">
+					<xpath>timeLimit/text()</xpath>
+				</item>
+				<item name="gravity">
+					<xpath>gravity/text()</xpath>
+				</item>
+				<item name="startTileX">
+					<xpath>startTileX/text()</xpath>
+				</item>
+				<item name="startTileY">
+					<xpath>startTileY/text()</xpath>
+				</item>
+				<item name="creator">
+					<xpath>creator/text()</xpath>
+				</item>
+				<item name="tilesetId">
+					<xpath>tilesetId/text()</xpath>
+				</item>
+				<item name="tilesetLength">
+					<xpath>tilesetLength/text()</xpath>
+				</item>
+			</list>
+		</filter>
+	</filters>
+	<parameters>
+		<parameter type="string" name="widgetname" description="Widget name" editable="no">BOOM! Game</parameter>
+	</parameters>
+	<resources>
+		<code src="boom.he"/>
+		<stylesheet src="style.css"/>
+		<img src="boom.png" scale="true" />
+		<img src="clock.png" scale="true" />
+		<img src="img_border.png" scale="false" />
+		<img src="mobile_radicals.png" scale="false" />
+		<img src="boom_sprite.png" scale="false" />
+	</resources>
+	<layout minimizedheight="64sp">
+		<view id="viewMini" class="frame">
+			<img src="boom.png" class="centrify" />
+		</view>
+		<view id="viewMenu">
+			<script id="menu" />
+		</view>
+		<view id="viewGame">
+			<script id="game" />
+		</view>
+	</layout>
+ 
+</widget>
