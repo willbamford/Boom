@@ -1,6 +1,6 @@
 {
   "name": "grobo.js",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "homepage": "http://github.com/WebSeed/grobo.js",
   "authors": [
     "Will Bamford <w.bamford@gmail.com>"
@@ -28,11 +28,11 @@
   "dependencies": {
     "requirejs": "~2.1.11"
   },
-  "_release": "0.1.1",
+  "_release": "0.1.2",
   "_resolution": {
     "type": "version",
-    "tag": "0.1.1",
-    "commit": "5be01adb11852918a57e74ad93135d95d5513b48"
+    "tag": "0.1.2",
+    "commit": "744b6debf451f9a7b54702f632f2731a487c156f"
   },
   "_source": "git://github.com/WebSeed/grobo.js.git",
   "_target": "~0.1.0",
