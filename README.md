@@ -1,7 +1,7 @@
 Boom!
 =====
 
-Port of an old Nokia WidSets game to use HTML5 canvas and grobo.js
+Port of an old Nokia WidSets game to use HTML5 canvas and [grobo.js](http://www.github.com/WebSeed/grobo.js)
 
 ## History
 
