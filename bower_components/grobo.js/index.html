@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>grobo.js: canvas UI and state management</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <style>
+            body {
+                margin: 0;
+                padding: 0;
+            }
+            .canvas {
+                background: black;
+                        user-select: none;
+                -webkit-user-select: none;
+                   -moz-user-select: none;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>grobo.js</h1>
+        <canvas id="canvas" class="canvas" width="320" height="320">
+            Sorry, your browser does not support HTML5 canvas.
+        </canvas>
+        <ul id="logger"></ul>
+        <script src="js/vendor/animation-frame-shim.js"></script>
+        <script data-main="js/main" src="js/vendor/require.js"></script>
+    </body>
+</html>
